@@ -1,6 +1,8 @@
-import { Event } from '../events/Event'
-import { PlayerSummary } from '../models/PlayerSummary'
+import { Game } from '../models/Game'
+import { Player } from '../models/Player'
 
-export interface UpdateState extends Event {
-    players: [PlayerSummary]
+export interface UpdateState {
+    matchId: string
+    players: Player[]
+    game: Game
 }
