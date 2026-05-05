@@ -1,2 +1,3 @@
 # Octane-Core
-Domain layer for the Octane Rocket League overlay. Consumes raw messages from @octane-rl/transport, validates them into a typed event union, and reduces them into match state. 
+Domain layer for the Octane Rocket League overlay. Connects to a stats websocket, exposes a typed event stream, and reduces it into match state.
+
