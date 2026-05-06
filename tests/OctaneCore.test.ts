@@ -1,5 +1,6 @@
 import { OctaneCore } from '../src/OctaneCore'
 import { Event, EventType } from '../src/public/events/Event'
+import { OctaneMeta } from '../src/public/meta/Meta'
 import { UpdateState } from '../src/public/state/UpdateState'
 
 type Listener = (e: any) => void
@@ -46,18 +47,20 @@ afterEach(() => {
 const socketAt = (path: string) =>
     FakeWebSocket.instances.find((s) => s.url.endsWith(path) && !s.closeCalled)!
 
-const openBoth = () => {
+const openAll = () => {
     socketAt('/events').dispatch('open')
     socketAt('/state').dispatch('open')
+    socketAt('/meta').dispatch('open')
 }
 
 describe('OctaneCore', () => {
-    test('connect opens /events and /state on the configured port', () => {
+    test('connect opens /events, /state, and /meta on the configured port', () => {
         const core = new OctaneCore({ port: 1234 })
         core.connect()
 
         expect(FakeWebSocket.instances.map((s) => s.url).sort()).toEqual([
             'ws://localhost:1234/events',
+            'ws://localhost:1234/meta',
             'ws://localhost:1234/state'
         ])
     })
@@ -67,10 +70,10 @@ describe('OctaneCore', () => {
         core.connect()
         core.connect()
 
-        expect(FakeWebSocket.instances).toHaveLength(2)
+        expect(FakeWebSocket.instances).toHaveLength(3)
     })
 
-    test('open fires once, only after both channels have opened', () => {
+    test('open fires once, only after every channel has opened', () => {
         const core = new OctaneCore({ port: 1234 })
         const handler = jest.fn()
         core.onOpen(handler)
@@ -80,6 +83,9 @@ describe('OctaneCore', () => {
         expect(handler).not.toHaveBeenCalled()
 
         socketAt('/state').dispatch('open')
+        expect(handler).not.toHaveBeenCalled()
+
+        socketAt('/meta').dispatch('open')
         expect(handler).toHaveBeenCalledTimes(1)
     })
 
@@ -90,7 +96,7 @@ describe('OctaneCore', () => {
         core.onOpen(a)
         core.onOpen(b)
         core.connect()
-        openBoth()
+        openAll()
 
         expect(a).toHaveBeenCalledTimes(1)
         expect(b).toHaveBeenCalledTimes(1)
@@ -118,6 +124,45 @@ describe('OctaneCore', () => {
         socketAt('/state').dispatch('message', { data: JSON.stringify(state) })
 
         expect(handler).toHaveBeenCalledWith(state)
+    })
+
+    test('messages on /meta are JSON-parsed and dispatched as OctaneMeta', () => {
+        const core = new OctaneCore({ port: 1234 })
+        const handler = jest.fn()
+        core.onMeta(handler)
+        core.connect()
+
+        const meta: OctaneMeta = {
+            bestOf: 5,
+            blue: { name: 'Blue', logo: '', wins: 1 },
+            orange: { name: 'Orange', logo: '', wins: 0 }
+        }
+        socketAt('/meta').dispatch('message', { data: JSON.stringify(meta) })
+
+        expect(handler).toHaveBeenCalledWith(meta)
+    })
+
+    test('meta does not leak into event or state handlers and vice versa', () => {
+        const core = new OctaneCore({ port: 1234 })
+        const eventHandler = jest.fn()
+        const stateHandler = jest.fn()
+        const metaHandler = jest.fn()
+        core.onEvent(eventHandler)
+        core.onState(stateHandler)
+        core.onMeta(metaHandler)
+        core.connect()
+
+        socketAt('/meta').dispatch('message', {
+            data: JSON.stringify({
+                bestOf: 3,
+                blue: { name: '', logo: '', wins: 0 },
+                orange: { name: '', logo: '', wins: 0 }
+            })
+        })
+
+        expect(metaHandler).toHaveBeenCalledTimes(1)
+        expect(eventHandler).not.toHaveBeenCalled()
+        expect(stateHandler).not.toHaveBeenCalled()
     })
 
     test('events do not leak into state handlers and vice versa', () => {
@@ -169,7 +214,7 @@ describe('OctaneCore', () => {
         const handler = jest.fn()
         core.onClose(handler)
         core.connect()
-        openBoth()
+        openAll()
 
         socketAt('/events').dispatch('close', { code: 1006, reason: 'gone', wasClean: false })
 
@@ -193,7 +238,7 @@ describe('OctaneCore', () => {
         const handler = jest.fn()
         core.onClose(handler)
         core.connect()
-        openBoth()
+        openAll()
 
         socketAt('/events').dispatch('close', { code: 1000, reason: '', wasClean: true })
         socketAt('/state').dispatch('close', { code: 1000, reason: '', wasClean: true })
@@ -222,11 +267,13 @@ describe('OctaneCore', () => {
         core.connect()
         const events = socketAt('/events')
         const state = socketAt('/state')
+        const meta = socketAt('/meta')
 
         core.close()
 
         expect(events.closeCalled).toBe(true)
         expect(state.closeCalled).toBe(true)
+        expect(meta.closeCalled).toBe(true)
     })
 
     test('connect after close creates fresh sockets', () => {
@@ -235,18 +282,21 @@ describe('OctaneCore', () => {
         core.close()
         core.connect()
 
-        expect(FakeWebSocket.instances).toHaveLength(4)
+        expect(FakeWebSocket.instances).toHaveLength(6)
     })
 
     test('handlers can unsubscribe via the returned function', () => {
         const core = new OctaneCore({ port: 1234 })
         const eventHandler = jest.fn()
         const stateHandler = jest.fn()
+        const metaHandler = jest.fn()
         const unsubEvent = core.onEvent(eventHandler)
         const unsubState = core.onState(stateHandler)
+        const unsubMeta = core.onMeta(metaHandler)
         core.connect()
         unsubEvent()
         unsubState()
+        unsubMeta()
 
         socketAt('/events').dispatch('message', {
             data: JSON.stringify({ type: EventType.matchCreated, matchId: 'm-1' })
@@ -254,8 +304,16 @@ describe('OctaneCore', () => {
         socketAt('/state').dispatch('message', {
             data: JSON.stringify({ matchId: 'm-1', players: [], game: {} })
         })
+        socketAt('/meta').dispatch('message', {
+            data: JSON.stringify({
+                bestOf: 5,
+                blue: { name: '', logo: '', wins: 0 },
+                orange: { name: '', logo: '', wins: 0 }
+            })
+        })
 
         expect(eventHandler).not.toHaveBeenCalled()
         expect(stateHandler).not.toHaveBeenCalled()
+        expect(metaHandler).not.toHaveBeenCalled()
     })
 })

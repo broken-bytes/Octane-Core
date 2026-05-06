@@ -1,4 +1,5 @@
 import { Event } from './public/events/Event'
+import { OctaneMeta } from './public/meta/Meta'
 import { UpdateState } from './public/state/UpdateState'
 
 export interface OctaneCoreConfig {
@@ -13,13 +14,15 @@ export interface CloseInfo {
 
 type EventHandler = (event: Event) => void
 type StateHandler = (state: UpdateState) => void
+type MetaHandler = (meta: OctaneMeta) => void
 type OpenHandler = () => void
 type CloseHandler = (info: CloseInfo) => void
 type ErrorHandler = (err: Error) => void
 
 const EVENTS_PATH = '/events'
 const STATE_PATH = '/state'
-const CHANNEL_COUNT = 2
+const META_PATH = '/meta'
+const CHANNEL_COUNT = 3
 
 export class OctaneCore {
     private sockets = new Map<string, WebSocket>()
@@ -28,6 +31,7 @@ export class OctaneCore {
 
     private eventHandlers = new Set<EventHandler>()
     private stateHandlers = new Set<StateHandler>()
+    private metaHandlers = new Set<MetaHandler>()
     private openHandlers = new Set<OpenHandler>()
     private closeHandlers = new Set<CloseHandler>()
     private errorHandlers = new Set<ErrorHandler>()
@@ -44,6 +48,12 @@ export class OctaneCore {
         this.stateHandlers.add(handler)
 
         return () => this.stateHandlers.delete(handler)
+    }
+
+    onMeta(handler: MetaHandler): () => void {
+        this.metaHandlers.add(handler)
+
+        return () => this.metaHandlers.delete(handler)
     }
 
     onOpen(handler: OpenHandler): () => void {
@@ -72,6 +82,10 @@ export class OctaneCore {
         this.openChannel(STATE_PATH, (data) => {
             const state = JSON.parse(data) as UpdateState
             for (const handler of this.stateHandlers) handler(state)
+        })
+        this.openChannel(META_PATH, (data) => {
+            const meta = JSON.parse(data) as OctaneMeta
+            for (const handler of this.metaHandlers) handler(meta)
         })
     }
 
