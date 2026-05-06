@@ -2,7 +2,16 @@ import { Event } from './Event'
 import { PlayerSummary } from '../models/PlayerSummary'
 
 export enum StatFeedEventType {
-    demolish
+    demolish,
+    shot,
+    goal,
+    longGoal,
+    hatTrick,
+    save,
+    epicSave,
+    savior,
+    assist,
+    playmaker,
 }
 
 export interface StatFeedEvent extends Event {
