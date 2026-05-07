@@ -8,6 +8,7 @@ export interface Player {
     score: number
     goals: number
     assists: number
+    saves: number
     touches: number
     bumps: number
     demos: number
